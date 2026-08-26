@@ -1008,7 +1008,7 @@ class MainActivity : BaseActivity(),
 
         embeddedTorrServerSetupStarted = true
         lifecycleScope.launch {
-            val serverReady = EmbeddedTorrServerManager.awaitReady()
+            val serverReady = EmbeddedTorrServerManager.awaitReady(20_000L)
             if (!serverReady) {
                 embeddedTorrServerSetupStarted = false
                 Log.w(TAG, "Embedded TorrServer is not ready; Lampa storage was not changed")
@@ -1024,7 +1024,7 @@ class MainActivity : BaseActivity(),
                         }
                         if (window._embeddedTorrServerStorageApplied) return true;
 
-                        const values = {
+                        const requiredValues = {
                             torrserver_url: 'http://127.0.0.1:8090',
                             torrserver_use_link: 'one',
                             internal_torrclient: true,
@@ -1034,10 +1034,28 @@ class MainActivity : BaseActivity(),
                             torrents_sort: 'Seeders',
                             playlist_next: true
                         };
+                        const parserDefaults = {
+                            parser_use: true,
+                            parser_torrent_type: 'jackett',
+                            parser_use_link: 'one',
+                            jackett_url: 'https://lampa.app',
+                            jackett_key: '',
+                            jackett_url_two: 'https://jac.red',
+                            jackett_key_two: '',
+                            jackett_interview: 'all',
+                            parse_timeout: '30',
+                            parse_in_search: true
+                        };
 
-                        Object.keys(values).forEach(function(name) {
-                            if (Lampa.Storage.get(name) !== values[name]) {
-                                Lampa.Storage.set(name, values[name]);
+                        Object.keys(requiredValues).forEach(function(name) {
+                            if (Lampa.Storage.get(name) !== requiredValues[name]) {
+                                Lampa.Storage.set(name, requiredValues[name]);
+                            }
+                        });
+
+                        Object.keys(parserDefaults).forEach(function(name) {
+                            if (localStorage.getItem(name) === null) {
+                                Lampa.Storage.set(name, parserDefaults[name]);
                             }
                         });
 
