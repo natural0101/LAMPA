@@ -8,7 +8,7 @@ def getVersionCode = { ->
     try {
         def code = new ByteArrayOutputStream()
         exec {
-            commandLine 'git', 'rev-list', '--count', 'origin/main'
+            commandLine 'git', 'rev-list', '--count', 'HEAD'
             standardOutput = code
         }
         return Integer.parseInt(code.toString().trim())
@@ -42,9 +42,12 @@ android {
         targetSdkVersion 28
         versionCode getVersionCode()
         versionName getVersionName()
+        buildConfigField "String", "updateReleasesUrl", "\"https://api.github.com/repos/lampa-app/LAMPA/releases\""
+        buildConfigField "String", "updateCertificateSha256", "\"\""
         multiDexEnabled = true // required when setting minSdkVersion to 20 or lower
         // Use SupportLibrary for vectors
         vectorDrawables.useSupportLibrary = true
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -73,6 +76,22 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+        nextTest {
+            initWith debug
+            applicationIdSuffix ".nexttest"
+            versionNameSuffix "-next-test"
+            buildConfigField "boolean", "enableUpdate", "false"
+            signingConfig signingConfigs.debug
+        }
+        matrix {
+            initWith release
+            applicationIdSuffix ".matrix"
+            versionNameSuffix "-matrix"
+            buildConfigField "boolean", "enableUpdate", "true"
+            buildConfigField "String", "updateReleasesUrl", "\"https://api.github.com/repos/natural0101/LAMPA/releases\""
+            buildConfigField "String", "updateCertificateSha256", "\"FFB499FC53EBC49EE76D78039AB99A1EA18D76FCFFE7B4CDB94D2A6B3CD73FCD\""
+            signingConfig signingConfigs.release
+        }
     }
     compileOptions {
         // Flag to enable support for the new language APIs
@@ -84,6 +103,10 @@ android {
     }
     packagingOptions {
         resources.excludes += "DebugProbesKt.bin"
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        doNotStrip "**/libtorrserver.so"
     }
     kotlinOptions {
         jvmTarget = "1.8"
@@ -189,4 +212,10 @@ dependencies {
     liteApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
     ruStoreApi fileTree(dir: 'libs', include: ['xwalk_shared_library-23.53.589.4.aar'])
     fullApi fileTree(dir: 'libs', include: ['xwalk_core_library-23.53.589.4.aar'])
+
+    androidTestImplementation 'androidx.test:core-ktx:1.5.0'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
+    androidTestImplementation 'androidx.test:rules:1.5.0'
+    androidTestImplementation 'androidx.test.ext:junit-ktx:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }

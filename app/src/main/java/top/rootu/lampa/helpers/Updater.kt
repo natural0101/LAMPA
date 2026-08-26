@@ -15,77 +15,45 @@ import top.rootu.lampa.R
 import top.rootu.lampa.helpers.Helpers.getJson
 import top.rootu.lampa.models.Release
 import top.rootu.lampa.models.Releases
-import top.rootu.lampa.net.TlsSocketFactory
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.Charset
-import java.security.GeneralSecurityException
 import javax.net.ssl.HttpsURLConnection
-import javax.net.ssl.SSLSocketFactory
 
 
 object Updater {
-    private const val RELEASE_LINK =
-        "https://api.github.com/repos/lampa-app/LAMPA/releases"
+    private val releaseLink = BuildConfig.updateReleasesUrl
+    private const val MAX_APK_BYTES = 300L * 1024L * 1024L
     private var releases: Releases? = null
     private var newVersion: Release? = null
 
-    init {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            try {
-                // Only TLSv1.2 and TLSv1.3 protocol available and trust all certs (insecure).
-                val socketFactory: SSLSocketFactory = TlsSocketFactory()
-                HttpsURLConnection.setDefaultSSLSocketFactory(socketFactory)
-            } catch (_: GeneralSecurityException) {
-            }
-        }
-    }
-
     fun check(): Boolean {
+        newVersion = null
         try {
-            val url = URL(RELEASE_LINK)
-            val connection = if (RELEASE_LINK.startsWith("https"))
-                url.openConnection() as HttpsURLConnection? // NetCipher.getHttpsURLConnection(url)
-            else
-                url.openConnection() as HttpURLConnection? // NetCipher.getHttpURLConnection(url)
-            connection?.connect()
-            val body = connection?.inputStream?.use {
-                it.bufferedReader(Charset.defaultCharset()).readText()
-            } ?: return false
-            releases = getJson(body, Releases::class.java)
-            releases?.let {
-                it.forEach { rel ->
-                    val majorVersionDouble: Double = try {
-                        rel.tag_name.replace("v", "").substringBefore(".").toDouble()
-                    } catch (npe: NumberFormatException) {
-                        0.0
-                    }
-                    val lastVersionDouble: Double = try {
-                        rel.tag_name.replace("v", "").substringAfter(".").toDouble()
-                    } catch (npe: NumberFormatException) {
-                        0.0
-                    }
-                    val majorCurrVersionDouble: Double = try {
-                        BuildConfig.VERSION_NAME.substringBefore(".").toDouble()
-                    } catch (npe: NumberFormatException) {
-                        0.0
-                    }
-                    val currVersionDouble: Double = try {
-                        BuildConfig.VERSION_NAME.substringAfter(".").toDouble()
-                    } catch (npe: NumberFormatException) {
-                        0.0
-                    }
-                    if (majorVersionDouble >= majorCurrVersionDouble && majorVersionDouble < 2 && lastVersionDouble > currVersionDouble) {
-                        newVersion = rel
-                        connection.disconnect()
-                        return true
-                    }
-                }
+            require(releaseLink.startsWith("https://")) { "Update endpoint must use HTTPS" }
+            val connection = URL(releaseLink).openConnection() as HttpsURLConnection
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 20_000
+            connection.setRequestProperty("Accept", "application/vnd.github+json")
+            connection.connect()
+            if (connection.responseCode !in 200..299) {
+                connection.disconnect()
+                return false
             }
+            val body = connection.inputStream.use {
+                it.bufferedReader(Charset.defaultCharset()).readText()
+            }
+            releases = getJson(body, Releases::class.java)
+            newVersion = releases
+                ?.asSequence()
+                ?.filterNot { it.draft || it.prerelease }
+                ?.filter { release -> release.assets.any(::isCompatibleApkAsset) }
+                ?.filter { release -> isNewerVersion(release.tag_name, BuildConfig.VERSION_NAME) }
+                ?.maxByOrNull { release -> semanticVersion(release.tag_name) }
             connection.disconnect()
-            return false
+            return newVersion != null
         } catch (e: Exception) {
             e.printStackTrace()
             return false
@@ -104,27 +72,7 @@ object Updater {
         var ret = ""
 
         releases?.forEach { rel ->
-            val majorVersionDouble: Double = try {
-                rel.tag_name.replace("v", "").substringBefore(".").toDouble()
-            } catch (npe: NumberFormatException) {
-                0.0
-            }
-            val lastVersionDouble: Double = try {
-                rel.tag_name.replace("v", "").substringAfter(".").toDouble()
-            } catch (npe: NumberFormatException) {
-                0.0
-            }
-            val majorCurrVersionDouble: Double = try {
-                BuildConfig.VERSION_NAME.substringBefore(".").toDouble()
-            } catch (npe: NumberFormatException) {
-                0.0
-            }
-            val currVersionDouble: Double = try {
-                BuildConfig.VERSION_NAME.substringAfter(".").toDouble()
-            } catch (npe: NumberFormatException) {
-                0.0
-            }
-            if (majorVersionDouble >= majorCurrVersionDouble && majorVersionDouble < 2 && lastVersionDouble > currVersionDouble) {
+            if (isNewerVersion(rel.tag_name, BuildConfig.VERSION_NAME)) {
                 ret += "<font color='white'><b>${rel.tag_name}</b></font> <br>"
                 ret += "<i>${rel.body.replace("\r\n", "<br/>")}</i><br/><br/>"
             } else {
@@ -142,47 +90,49 @@ object Updater {
             newVersion?.let { rel ->
                 if (file.exists())
                     file.delete()
-                var link = ""
-                for (asset in rel.assets) {
-                    link = asset.browser_download_url
-                }
-                if (link.isNotEmpty()) {
-                    try {
-                        val url = URL(link)
-                        val connection = if (link.startsWith("https"))
-                            url.openConnection() as HttpsURLConnection? // NetCipher.getHttpsURLConnection(url)
-                        else
-                            url.openConnection() as HttpURLConnection? // NetCipher.getHttpURLConnection(url)
-                        connection?.connect()
-                        connection?.inputStream.use { input ->
+                val asset = rel.assets.firstOrNull(::isCompatibleApkAsset)
+                    ?: error("Release does not contain a compatible APK")
+                val link = asset.browser_download_url
+                require(link.startsWith("https://")) { "APK download must use HTTPS" }
+                require(asset.size.toLong() in 1..MAX_APK_BYTES) { "APK has an invalid size" }
+                try {
+                        val connection = URL(link).openConnection() as HttpsURLConnection
+                        connection.connectTimeout = 20_000
+                        connection.readTimeout = 30_000
+                        connection.instanceFollowRedirects = true
+                        connection.connect()
+                        require(connection.responseCode in 200..299) { "APK download failed" }
+                        require(connection.url.protocol.equals("https", ignoreCase = true)) {
+                            "APK download redirected outside HTTPS"
+                        }
+                        require(connection.contentLengthLong <= MAX_APK_BYTES) { "APK is too large" }
+                        connection.inputStream.use { input ->
                             FileOutputStream(file).use { fileOut ->
-                                val contentLength = connection?.contentLength ?: 0
+                                val contentLength = asset.size.coerceAtLeast(1)
                                 if (onProgress == null)
                                     input?.copyTo(fileOut)
                                 else {
                                     val buffer = ByteArray(65535)
-                                    val length = contentLength + 1
                                     var offset: Long = 0
                                     while (true) {
-                                        val read = input?.read(buffer) ?: 0
+                                        val read = input.read(buffer)
+                                        if (read <= 0) break
                                         offset += read
-                                        val prc = (offset * 100 / length).toInt()
+                                        require(offset <= MAX_APK_BYTES) { "APK is too large" }
+                                        val prc = (offset * 100 / contentLength).toInt().coerceIn(0, 100)
                                         onProgress(prc)
-                                        if (read <= 0)
-                                            break
                                         fileOut.write(buffer, 0, read)
                                     }
-                                    fileOut.flush()
                                 }
                                 fileOut.flush()
-                                fileOut.close()
                             }
                         }
-                        connection?.disconnect()
+                        connection.disconnect()
+                        require(file.length() == asset.size.toLong()) { "APK download is incomplete" }
                     } catch (e: Exception) {
-                        e.printStackTrace()
+                        file.delete()
+                        throw e
                     }
-                }
             }
         }
     }
@@ -197,11 +147,12 @@ object Updater {
                 ctx.getExternalFilesDir(null),
                 "LAMPA.apk"
             ).apply {
-                mkdirs()
+                parentFile?.mkdirs()
                 deleteOnExit()
             }
 
             downloadApk(destination, onProgress)
+            ApkUpdateVerifier.verify(ctx, destination).getOrThrow()
 
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
                 val uri = Uri.fromFile(destination)
@@ -229,5 +180,23 @@ object Updater {
                     App.toast(R.string.error_app_not_found)
             }
         }
+    }
+
+    private fun isCompatibleApkAsset(asset: top.rootu.lampa.models.Asset): Boolean {
+        if (!asset.name.endsWith(".apk", ignoreCase = true)) return false
+        return !BuildConfig.APPLICATION_ID.endsWith(".matrix") ||
+            asset.name.contains("matrix", ignoreCase = true)
+    }
+
+    private fun isNewerVersion(candidate: String, current: String): Boolean =
+        semanticVersion(candidate) > semanticVersion(current)
+
+    private fun semanticVersion(value: String): Long {
+        val match = Regex("(\\d+)\\.(\\d+)(?:\\.(\\d+))?").find(value) ?: return 0L
+        val major = match.groupValues[1].toLongOrNull() ?: 0L
+        val minor = match.groupValues[2].toLongOrNull() ?: 0L
+        val patch = match.groupValues.getOrNull(3)?.toLongOrNull() ?: 0L
+        return major.coerceAtMost(9999) * 1_000_000_000L +
+            minor.coerceAtMost(999_999) * 1_000L + patch.coerceAtMost(999)
     }
 }

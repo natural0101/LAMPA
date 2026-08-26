@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="matrix_control_title">Built-in MatriX</string>
+    <string name="matrix_restart">Restart server</string>
+    <string name="matrix_clear_cache">Clear RAM cache</string>
+    <string name="matrix_check_connection">Check connection</string>
+    <string name="matrix_diagnostics">Diagnostics</string>
+    <string name="matrix_export_report">Export safe report</string>
+    <string name="matrix_export_failed">Could not export the report</string>
+    <string name="matrix_restarting">Restarting MatriX…</string>
+    <string name="matrix_cache_clearing">Clearing MatriX RAM cache…</string>
+    <string name="matrix_restart_ok">MatriX restarted and passed the health check</string>
+    <string name="matrix_cache_cleared">RAM cache cleared; MatriX passed the health check</string>
+    <string name="matrix_operation_failed">MatriX operation failed</string>
+    <string name="matrix_health_ready">running</string>
+    <string name="matrix_health_stopped">stopped</string>
+    <string name="matrix_health_incompatible">port occupied by an incompatible service</string>
+    <string name="matrix_health_unsupported">not supported on this device</string>
+    <string name="matrix_unknown">unknown</string>
+    <string name="matrix_status_line">Status: %1$s</string>
+    <string name="matrix_version_line">Version: %1$s</string>
+    <string name="matrix_endpoint_line">Endpoint: %1$s</string>
+    <string name="matrix_error_unsupported">Built-in MatriX requires Android 5.0+ and a supported CPU architecture.</string>
+    <string name="matrix_error_binary">The bundled MatriX binary is missing or failed its integrity check.</string>
+    <string name="matrix_error_storage">MatriX cannot access its private data directory.</string>
+    <string name="matrix_error_disk_cache">Disk cache is enabled. It was not deleted because MatriX.143 has no safe global cache-clear API. Disable disk cache first; torrent records and files are preserved.</string>
+    <string name="matrix_error_port_occupied">Port 8090 answered, but its API is not compatible with MatriX. Close the other service using this port.</string>
+    <string name="matrix_error_process">The MatriX process exited. One automatic recovery attempt is allowed.</string>
+    <string name="matrix_error_timeout">MatriX did not pass the health check before the timeout.</string>
+    <string name="matrix_error_not_running">MatriX is not responding on 127.0.0.1:8090.</string>
+</resources>

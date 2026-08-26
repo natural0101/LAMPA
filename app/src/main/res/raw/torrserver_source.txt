@@ -1,0 +1,17 @@
+TorrServer source provenance
+============================
+
+Component: TorrServer
+Upstream project: https://github.com/YouROK/TorrServer
+Upstream release: MatriX.143
+Release page: https://github.com/YouROK/TorrServer/releases/tag/MatriX.143
+Exact source commit: 5c812ec1abe4c8e0acee29d820f78205a8f0e7b7
+Exact source tree: https://github.com/YouROK/TorrServer/tree/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7
+Source archive: https://github.com/YouROK/TorrServer/archive/refs/tags/MatriX.143.tar.gz
+Official build recipe: https://github.com/YouROK/TorrServer/blob/5c812ec1abe4c8e0acee29d820f78205a8f0e7b7/.github/workflows/ts_release.yml
+License: GNU General Public License version 3 (GPL-3.0)
+License text in this application: res/raw/torrserver_license_gpl3.txt
+
+The packaged standalone Android executables are distributed as separate
+TorrServer processes and communicate with the Android application over the
+local HTTP API. No TorrServer source changes are included in this application.

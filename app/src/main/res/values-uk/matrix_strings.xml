@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="matrix_control_title">Вбудований MatriX</string>
+    <string name="matrix_restart">Перезапустити сервер</string>
+    <string name="matrix_clear_cache">Очистити кеш у пам’яті</string>
+    <string name="matrix_check_connection">Перевірити з’єднання</string>
+    <string name="matrix_diagnostics">Діагностика</string>
+    <string name="matrix_export_report">Експортувати безпечний звіт</string>
+    <string name="matrix_export_failed">Не вдалося експортувати звіт</string>
+    <string name="matrix_restarting">MatriX перезапускається…</string>
+    <string name="matrix_cache_clearing">Кеш MatriX у пам’яті очищується…</string>
+    <string name="matrix_restart_ok">MatriX перезапущено та перевірено</string>
+    <string name="matrix_cache_cleared">Кеш у пам’яті очищено; MatriX перевірено</string>
+    <string name="matrix_operation_failed">Операцію MatriX не виконано</string>
+    <string name="matrix_health_ready">працює</string>
+    <string name="matrix_health_stopped">зупинено</string>
+    <string name="matrix_health_incompatible">порт зайнятий несумісним сервісом</string>
+    <string name="matrix_health_unsupported">пристрій не підтримується</string>
+    <string name="matrix_unknown">невідомо</string>
+    <string name="matrix_status_line">Стан: %1$s</string>
+    <string name="matrix_version_line">Версія: %1$s</string>
+    <string name="matrix_endpoint_line">Адреса: %1$s</string>
+    <string name="matrix_error_unsupported">Вбудованому MatriX потрібен Android 5.0+ і підтримувана архітектура процесора.</string>
+    <string name="matrix_error_binary">Файл MatriX відсутній або не пройшов перевірку цілісності.</string>
+    <string name="matrix_error_storage">MatriX не може відкрити приватну папку даних.</string>
+    <string name="matrix_error_disk_cache">Увімкнено дисковий кеш. Його не видалено: MatriX.143 не має безпечного API повного очищення.</string>
+    <string name="matrix_error_port_occupied">Порт 8090 відповідає, але його API несумісний із MatriX. Зупиніть інший сервіс на цьому порту.</string>
+    <string name="matrix_error_process">Процес MatriX завершився. Дозволено одну спробу автоматичного відновлення.</string>
+    <string name="matrix_error_timeout">MatriX не пройшов перевірку до завершення часу очікування.</string>
+    <string name="matrix_error_not_running">MatriX не відповідає на 127.0.0.1:8090.</string>
+</resources>

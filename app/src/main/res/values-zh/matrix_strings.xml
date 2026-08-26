@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="matrix_control_title">内置 MatriX</string>
+    <string name="matrix_restart">重启服务器</string>
+    <string name="matrix_clear_cache">清除内存缓存</string>
+    <string name="matrix_check_connection">检查连接</string>
+    <string name="matrix_diagnostics">诊断</string>
+    <string name="matrix_export_report">导出安全报告</string>
+    <string name="matrix_export_failed">无法导出报告</string>
+    <string name="matrix_restarting">正在重启 MatriX…</string>
+    <string name="matrix_cache_clearing">正在清除 MatriX 内存缓存…</string>
+    <string name="matrix_restart_ok">MatriX 已重启并通过健康检查</string>
+    <string name="matrix_cache_cleared">内存缓存已清除；MatriX 已通过检查</string>
+    <string name="matrix_operation_failed">MatriX 操作失败</string>
+    <string name="matrix_health_ready">运行中</string>
+    <string name="matrix_health_stopped">已停止</string>
+    <string name="matrix_health_incompatible">端口被不兼容服务占用</string>
+    <string name="matrix_health_unsupported">此设备不受支持</string>
+    <string name="matrix_unknown">未知</string>
+    <string name="matrix_status_line">状态：%1$s</string>
+    <string name="matrix_version_line">版本：%1$s</string>
+    <string name="matrix_endpoint_line">地址：%1$s</string>
+    <string name="matrix_error_unsupported">内置 MatriX 需要 Android 5.0+ 和受支持的 CPU 架构。</string>
+    <string name="matrix_error_binary">内置 MatriX 文件缺失或未通过完整性检查。</string>
+    <string name="matrix_error_storage">MatriX 无法访问其私有数据目录。</string>
+    <string name="matrix_error_disk_cache">磁盘缓存已启用。MatriX.143 没有安全的全局清除 API，因此未删除任何磁盘数据。</string>
+    <string name="matrix_error_port_occupied">端口 8090 有响应，但 API 与 MatriX 不兼容。请关闭占用端口的其他服务。</string>
+    <string name="matrix_error_process">MatriX 进程已退出。仅允许一次自动恢复尝试。</string>
+    <string name="matrix_error_timeout">MatriX 未在超时前通过健康检查。</string>
+    <string name="matrix_error_not_running">MatriX 未在 127.0.0.1:8090 响应。</string>
+</resources>

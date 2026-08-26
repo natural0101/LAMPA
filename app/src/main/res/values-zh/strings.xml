@@ -80,6 +80,11 @@
     <string name="update_chan_title">更新渠道和推荐</string>
     <string name="update_home_title">更新建议</string>
     <string name="backup_restore_title">设置备份和恢复 恢复</string>
+    <string name="settings_export_file">将设置导出到文件</string>
+    <string name="settings_import_file">从文件导入设置</string>
+    <string name="settings_file_saved">设置文件已保存（%1$d 项）</string>
+    <string name="settings_file_restored">已从 %2$s 导入 %1$d 项设置</string>
+    <string name="settings_transfer_requires_kitkat">文件传输需要 Android 4.4 或更高版本</string>
     <string name="backup_all">备份所有设置</string>
     <string name="backup_all_title">Lampa 设置备份</string>
     <string name="restore_app_title">恢复应用程序首选项</string>
@@ -102,6 +107,16 @@
     <string name="app_crash_showlog">显示日志</string>
     <string name="app_crash_errlogs">错误日志</string>
     <string name="generic_error">发生错误</string>
+    <string name="next_episode_prompt_title">本集已结束</string>
+    <string name="next_episode_prompt_message">播放下一集？\n%1$s</string>
+    <string name="next_episode_play">播放</string>
+    <string name="next_episode_default_title">下一集</string>
+    <string name="next_episode_countdown_message">%1$d 秒后播放下一集\n%2$s</string>
+    <string name="next_episode_mode_menu">下一集：%1$s</string>
+    <string name="next_episode_mode_title">本集播放结束后</string>
+    <string name="next_episode_mode_ask">询问</string>
+    <string name="next_episode_mode_auto">10 秒后自动播放</string>
+    <string name="next_episode_mode_off">关闭</string>
     <!-- Net Errors -->
     <string name="net_error_failed">网络请求失败</string>
     <string name="net_error_timed_out">连接超时</string>

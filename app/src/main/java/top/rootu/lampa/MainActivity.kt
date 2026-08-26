@@ -17,6 +17,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Build.VERSION
 import android.os.Bundle
+import android.os.CountDownTimer
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
@@ -97,6 +98,7 @@ import top.rootu.lampa.helpers.Prefs.addUrlHistory
 import top.rootu.lampa.helpers.Prefs.appBrowser
 import top.rootu.lampa.helpers.Prefs.appLang
 import top.rootu.lampa.helpers.Prefs.appPlayer
+import top.rootu.lampa.helpers.Prefs.nextEpisodeMode
 import top.rootu.lampa.helpers.Prefs.playerKeepConnection
 import top.rootu.lampa.helpers.Prefs.appPrefs
 import top.rootu.lampa.helpers.Prefs.appUrl
@@ -118,6 +120,7 @@ import top.rootu.lampa.helpers.Prefs.urlHistory
 import top.rootu.lampa.helpers.Prefs.viewToRemove
 import top.rootu.lampa.helpers.Prefs.wathToAdd
 import top.rootu.lampa.helpers.Prefs.wathToRemove
+import top.rootu.lampa.helpers.SettingsTransfer
 import top.rootu.lampa.helpers.getAppVersion
 import top.rootu.lampa.helpers.hideSystemUI
 import top.rootu.lampa.helpers.isAmazonDev
@@ -127,6 +130,7 @@ import top.rootu.lampa.models.LAMPA_CARD_KEY
 import top.rootu.lampa.models.LampaCard
 import top.rootu.lampa.net.HttpHelper
 import top.rootu.lampa.sched.Scheduler
+import top.rootu.lampa.torrent.EmbeddedTorrServerManager
 import java.util.Locale
 import java.util.regex.Pattern
 import androidx.core.content.edit
@@ -144,9 +148,14 @@ class MainActivity : BaseActivity(),
     private var browserInitComplete = false
     private var isMenuVisible = false
     private var isPlayerLaunching = false // suppress WebView pauseTimers while our external player is open
+    private var embeddedTorrServerSetupStarted = false
+    private var nextEpisodeCountdownTimer: CountDownTimer? = null
+    private var nextEpisodeDialog: AlertDialog? = null
     private lateinit var loaderView: LottieAnimationView
     private lateinit var resultLauncher: ActivityResultLauncher<Intent>
     private lateinit var speechLauncher: ActivityResultLauncher<Intent>
+    private lateinit var settingsExportLauncher: ActivityResultLauncher<String>
+    private lateinit var settingsImportLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var progressIndicator: LinearProgressIndicator
     private lateinit var playerStateManager: PlayerStateManager
 
@@ -169,6 +178,7 @@ class MainActivity : BaseActivity(),
     companion object {
         // Constants
         const val VIDEO_COMPLETED_DURATION_MAX_PERCENTAGE = 96
+        private const val NEXT_EPISODE_COUNTDOWN_MILLIS = 10_000L
         private const val TAG = "APP_MAIN"
         private const val RESULT_VIMU_ENDED = 2
         private const val RESULT_VIMU_START = 3
@@ -267,6 +277,9 @@ class MainActivity : BaseActivity(),
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            EmbeddedTorrServerManager.start(this)
+        }
         LAMPA_URL = appUrl
         SELECTED_PLAYER = appPlayer
         keepPlayerConnection = playerKeepConnection
@@ -299,6 +312,13 @@ class MainActivity : BaseActivity(),
 
     override fun onResume() {
         super.onResume()
+        if (VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            lifecycleScope.launch {
+                if (!EmbeddedTorrServerManager.ensureHealthyAfterResume(this@MainActivity)) {
+                    Log.w(TAG, "Embedded MatriX resume health check failed")
+                }
+            }
+        }
         isPlayerLaunching = false // returned to foreground; player (if any) is closed
         browser?.setKeepVisible(false) // restore normal visibility handling
         PlaybackService.stop(this) // no longer need to hold the process foreground
@@ -321,6 +341,7 @@ class MainActivity : BaseActivity(),
     }
 
     override fun onPause() {
+        if (!isPlayerLaunching) dismissNextEpisodePromptForBackground()
         // Keep JS timers (and the RCH socket heartbeat) alive while our external player is open,
         // but only when the user enabled it. Home/real backgrounding still pauses as before.
         if (browserInitComplete && !(isPlayerLaunching && keepPlayerConnection))
@@ -329,6 +350,9 @@ class MainActivity : BaseActivity(),
     }
 
     override fun onDestroy() {
+        nextEpisodeCountdownTimer?.cancel()
+        nextEpisodeCountdownTimer = null
+        nextEpisodeDialog = null
         PlaybackService.stop(this)
         if (browserInitComplete) {
             browser?.apply {
@@ -428,6 +452,7 @@ class MainActivity : BaseActivity(),
         }
         // Hack to skip reload from Back history
         if (url.trimEnd('/').equals(LAMPA_URL, true)) {
+            setupEmbeddedTorrServerForLampa()
             // 1s delay after deep link to load content and after storage listener setup
             val waitDelay = 1000L
             // Lazy Load Intent
@@ -691,8 +716,8 @@ class MainActivity : BaseActivity(),
                 }
 
                 pos > 0L -> {
-                    Log.i(TAG, "Playback stopped with no duration! ENDED")
-                    resultPlayer(url, pos.toInt(), pos.toInt(), true)
+                    Log.i(TAG, "Playback stopped with no duration; preserving resume position")
+                    resultPlayer(url, pos.toInt(), 0, false)
                 }
             }
         } else {
@@ -795,6 +820,14 @@ class MainActivity : BaseActivity(),
         speechLauncher =
             registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                 handleSpeechResult(result)
+            }
+        settingsExportLauncher =
+            registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+                uri?.let(::writePortableSettings)
+            }
+        settingsImportLauncher =
+            registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                uri?.let(::readPortableSettings)
             }
     }
 
@@ -951,6 +984,79 @@ class MainActivity : BaseActivity(),
         runJsStorageChangeField("proxy_tmdb") // to get current baseUrlApiTMDB and baseUrlImageTMDB
     }
 
+    private fun setupEmbeddedTorrServerForLampa() {
+        if (VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || embeddedTorrServerSetupStarted) return
+
+        embeddedTorrServerSetupStarted = true
+        lifecycleScope.launch {
+            val serverReady = EmbeddedTorrServerManager.awaitReady()
+            if (!serverReady) {
+                embeddedTorrServerSetupStarted = false
+                Log.w(TAG, "Embedded TorrServer is not ready; Lampa storage was not changed")
+                return@launch
+            }
+
+            browser?.evaluateJavascript(
+                """
+                (function() {
+                    const applyEmbeddedTorrServer = function() {
+                        if (!window.Lampa || !Lampa.Storage || typeof Lampa.Storage.set !== 'function') {
+                            return false;
+                        }
+                        if (window._embeddedTorrServerStorageApplied) return true;
+
+                        const values = {
+                            torrserver_url: 'http://127.0.0.1:8090',
+                            torrserver_use_link: 'one',
+                            internal_torrclient: true,
+                            torrserver_preload: true,
+                            torrserver_auth: false,
+                            torrserver_gts: false,
+                            torrents_sort: 'Seeders',
+                            playlist_next: true
+                        };
+
+                        Object.keys(values).forEach(function(name) {
+                            if (Lampa.Storage.get(name) !== values[name]) {
+                                Lampa.Storage.set(name, values[name]);
+                            }
+                        });
+
+                        window._embeddedTorrServerStorageApplied = true;
+                        console.info('Embedded TorrServer: Lampa storage configured');
+                        return true;
+                    };
+
+                    if (applyEmbeddedTorrServer()) return 'APPLIED';
+
+                    if (!window._embeddedTorrServerReadyListener && window.Lampa && Lampa.Listener) {
+                        window._embeddedTorrServerReadyListener = true;
+                        Lampa.Listener.follow('app', function(event) {
+                            if (event.type === 'ready') applyEmbeddedTorrServer();
+                        });
+                        return 'WAITING_FOR_LAMPA';
+                    }
+
+                    if (!window._embeddedTorrServerReadyPoll) {
+                        let attempts = 0;
+                        window._embeddedTorrServerReadyPoll = setInterval(function() {
+                            attempts++;
+                            if (applyEmbeddedTorrServer() || attempts >= 120) {
+                                clearInterval(window._embeddedTorrServerReadyPoll);
+                                delete window._embeddedTorrServerReadyPoll;
+                            }
+                        }, 250);
+                    }
+
+                    return 'WAITING_FOR_LAMPA';
+                })()
+                """.trimIndent()
+            ) { result ->
+                Log.i(TAG, "Embedded TorrServer Lampa setup result: ${result.removeSurrounding("\"")}")
+            }
+        }
+    }
+
     fun getLampaTmdbUrls() {
         lifecycleScope.launch {
             browser?.evaluateJavascript(
@@ -1069,9 +1175,15 @@ class MainActivity : BaseActivity(),
         val restoreJavascript = """
             (function() {
                 console.log('Restoring localStorage from App Prefs');
+                const previous = {};
+                for (let index = 0; index < localStorage.length; index++) {
+                    const previousKey = localStorage.key(index);
+                    previous[previousKey] = localStorage.getItem(previousKey);
+                }
                 try {
                     AndroidJS.dump();
                     var len = AndroidJS.size();
+                    localStorage.clear();
                     for (i = 0; i < len; i++) {
                         var key = AndroidJS.key(i);
                         console.log('[' + key + ']');
@@ -1079,6 +1191,10 @@ class MainActivity : BaseActivity(),
                     }
                     return '${JS_SUCCESS}. ' + len + ' items restored.';
                 } catch (error) {
+                    localStorage.clear();
+                    Object.keys(previous).forEach(function(key) {
+                        localStorage.setItem(key, previous[key]);
+                    });
                     return '${JS_FAILURE}: ' + error.message;
                 }
             })()
@@ -1363,6 +1479,19 @@ class MainActivity : BaseActivity(),
                 icon = R.drawable.round_link_24
             ),
             MenuItem(
+                title = getString(
+                    R.string.next_episode_mode_menu,
+                    getString(nextEpisodeMode.labelRes())
+                ),
+                action = "selectNextEpisodeMode",
+                icon = R.drawable.round_settings_backup_restore_24
+            ),
+            MenuItem(
+                title = getString(R.string.matrix_control_title),
+                action = "showMatrixControl",
+                icon = R.drawable.round_refresh_24
+            ),
+            MenuItem(
                 title = getString(R.string.exit),
                 action = "appExit",
                 icon = R.drawable.round_exit_to_app_24
@@ -1403,6 +1532,8 @@ class MainActivity : BaseActivity(),
                     }
 
                     "showBackupDialog" -> showBackupDialog()
+                    "selectNextEpisodeMode" -> showNextEpisodeModeDialog()
+                    "showMatrixControl" -> showMatrixControlDialog()
                     "toggleKeepConnection" -> {
                         keepPlayerConnection = !keepPlayerConnection
                         playerKeepConnection = keepPlayerConnection // persist to prefs
@@ -1420,6 +1551,28 @@ class MainActivity : BaseActivity(),
         // Show full screen dialog
         showFullScreenDialog(dialog)
         isMenuVisible = true
+    }
+
+    private fun NextEpisodeMode.labelRes(): Int = when (this) {
+        NextEpisodeMode.ASK -> R.string.next_episode_mode_ask
+        NextEpisodeMode.AUTO -> R.string.next_episode_mode_auto
+        NextEpisodeMode.OFF -> R.string.next_episode_mode_off
+    }
+
+    private fun showNextEpisodeModeDialog() {
+        val modes = NextEpisodeMode.values()
+        val labels = modes.map { getString(it.labelRes()) }.toTypedArray()
+        val selected = modes.indexOf(nextEpisodeMode).coerceAtLeast(0)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.next_episode_mode_title)
+            .setSingleChoiceItems(labels, selected) { choiceDialog, which ->
+                nextEpisodeMode = modes[which]
+                choiceDialog.dismiss()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        showFullScreenDialog(dialog)
+        dialog.listView?.requestFocus()
     }
 
     // Function to handle backup all settings
@@ -1444,6 +1597,85 @@ class MainActivity : BaseActivity(),
                     App.toast(R.string.settings_save_fail)
                 }
             }
+        }
+    }
+
+    private fun exportPortableSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
+            App.toast(R.string.settings_transfer_requires_kitkat)
+            return
+        }
+        lifecycleScope.launch {
+            dumpStorage { callback ->
+                if (callback.contains(JS_SUCCESS, true)) {
+                    settingsExportLauncher.launch("LAMPA-settings.json")
+                } else {
+                    App.toast(R.string.settings_save_fail)
+                }
+            }
+        }
+    }
+
+    private fun writePortableSettings(uri: Uri) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                SettingsTransfer.exportToUri(this@MainActivity, uri)
+            }
+            result.fold(
+                onSuccess = { count ->
+                    App.toast(getString(R.string.settings_file_saved, count))
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Settings export failed", error)
+                    App.toast(R.string.settings_save_fail)
+                }
+            )
+        }
+    }
+
+    private fun importPortableSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
+            App.toast(R.string.settings_transfer_requires_kitkat)
+            return
+        }
+        settingsImportLauncher.launch(arrayOf("application/json", "application/octet-stream"))
+    }
+
+    private fun readPortableSettings(uri: Uri) {
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                SettingsTransfer.importFromUri(this@MainActivity, uri)
+            }
+            result.fold(
+                onSuccess = { imported ->
+                    restoreStorage { callback ->
+                        if (callback.contains(JS_SUCCESS, true)) {
+                            App.toast(
+                                getString(
+                                    R.string.settings_file_restored,
+                                    imported.itemCount,
+                                    imported.sourcePackage
+                                )
+                            )
+                            recreate()
+                        } else {
+                            lifecycleScope.launch {
+                                val rolledBack = withContext(Dispatchers.IO) {
+                                    SettingsTransfer.rollback(this@MainActivity, imported)
+                                }
+                                if (!rolledBack) {
+                                    Log.e(TAG, "Native settings rollback failed after WebView restore error")
+                                }
+                                App.toast(R.string.settings_rest_fail)
+                            }
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Settings import failed", error)
+                    App.toast(R.string.settings_rest_fail)
+                }
+            )
         }
     }
 
@@ -1490,6 +1722,16 @@ class MainActivity : BaseActivity(),
         // Define menu items
         val menuItems = listOf(
             MenuItem(
+                title = getString(R.string.settings_export_file),
+                action = "exportPortableSettings",
+                icon = R.drawable.round_save_24
+            ),
+            MenuItem(
+                title = getString(R.string.settings_import_file),
+                action = "importPortableSettings",
+                icon = R.drawable.round_refresh_24
+            ),
+            MenuItem(
                 title = getString(R.string.backup_all_title),
                 action = "backupAllSettings",
                 icon = R.drawable.round_settings_backup_restore_24
@@ -1524,6 +1766,8 @@ class MainActivity : BaseActivity(),
             setAdapter(adapter) { dialog, which ->
                 dialog.dismiss()
                 when (menuItems[which].action) {
+                    "exportPortableSettings" -> exportPortableSettings()
+                    "importPortableSettings" -> importPortableSettings()
                     "backupAllSettings" -> backupAllSettings()
                     "restoreAppSettings" -> restoreAppSettings()
                     "restoreLampaSettings" -> restoreLampaSettings()
@@ -1536,10 +1780,8 @@ class MainActivity : BaseActivity(),
         // Set active row
         adapter.setSelectedItem(0)
 
-        // Check storage permissions
-        if (!PermHelpers.hasStoragePermissions(this)) {
-            PermHelpers.verifyStoragePermissions(this)
-        }
+        // SAF export/import does not need broad storage permission. The legacy backup action
+        // requests it only when that action is selected.
     }
 
     private fun showBrowserInputDialog() {
@@ -3331,16 +3573,174 @@ class MainActivity : BaseActivity(),
             // Update PlayNext (must finish before clearState)
             // Critical section - ensure ordering
             if (ended) {
-                val updateJob = launch(Dispatchers.Default) {
-                    updatePlayNext(true) // Runs in background
+                val nextIndex = foundIndex + 1
+                if (nextIndex <= updatedPlaylist.lastIndex) {
+                    when (nextEpisodeMode) {
+                        NextEpisodeMode.OFF -> finishCompletedPlayback()
+                        NextEpisodeMode.ASK,
+                        NextEpisodeMode.AUTO -> showNextEpisodePrompt(
+                            playlist = updatedPlaylist,
+                            nextIndex = nextIndex,
+                            startIndex = currentState.startIndex,
+                            extras = currentState.extras,
+                            mode = nextEpisodeMode
+                        )
+                    }
+                } else {
+                    finishCompletedPlayback()
                 }
-                updateJob.join() // Wait for completion before clearing state
-                playerStateManager.clearState(lampaActivity)
             } else {
                 launch(Dispatchers.Default) {
                     updatePlayNext(false) // Fire-and-forget for non-ended case
                 }
             }
+        }
+    }
+
+    private fun showNextEpisodePrompt(
+        playlist: List<PlayerStateManager.PlaylistItem>,
+        nextIndex: Int,
+        startIndex: Int,
+        extras: Map<String, Any>,
+        mode: NextEpisodeMode
+    ) {
+        val nextItem = playlist.getOrNull(nextIndex) ?: run {
+            finishCompletedPlayback()
+            return
+        }
+        lifecycleScope.launch {
+            EmbeddedTorrServerManager.prewarmStream(nextItem.url)
+        }
+        val nextTitle = nextItem.title?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.next_episode_default_title)
+
+        var resolved = false
+        val playNext = {
+            val nextState = playerStateManager.saveState(
+                activityJson = lampaActivity,
+                playlist = playlist,
+                currentIndex = nextIndex,
+                currentUrl = nextItem.url,
+                currentPosition = 0,
+                startIndex = startIndex,
+                extras = extras
+            )
+            launchNextPlaylistItem(nextState, nextTitle)
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.next_episode_prompt_title)
+            .setMessage(
+                if (mode == NextEpisodeMode.AUTO) {
+                    getString(R.string.next_episode_countdown_message, 10, nextTitle)
+                } else {
+                    getString(R.string.next_episode_prompt_message, nextTitle)
+                }
+            )
+            .setPositiveButton(R.string.next_episode_play) { _, _ ->
+                if (!resolved) {
+                    resolved = true
+                    playNext()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                if (!resolved) {
+                    resolved = true
+                    finishCompletedPlayback()
+                }
+            }
+            .create()
+
+        dialog.setOnCancelListener {
+            if (!resolved) {
+                resolved = true
+                finishCompletedPlayback()
+            }
+        }
+        nextEpisodeDialog = dialog
+        dialog.setOnDismissListener {
+            if (nextEpisodeDialog === dialog) {
+                nextEpisodeCountdownTimer?.cancel()
+                nextEpisodeCountdownTimer = null
+                nextEpisodeDialog = null
+            }
+        }
+        showFullScreenDialog(dialog)
+        dialog.getButton(BUTTON_POSITIVE)?.requestFocus()
+
+        if (mode == NextEpisodeMode.AUTO) {
+            nextEpisodeCountdownTimer = object : CountDownTimer(NEXT_EPISODE_COUNTDOWN_MILLIS, 1_000L) {
+                override fun onTick(millisUntilFinished: Long) {
+                    val seconds = (millisUntilFinished + 999L) / 1_000L
+                    dialog.setMessage(
+                        getString(R.string.next_episode_countdown_message, seconds, nextTitle)
+                    )
+                }
+
+                override fun onFinish() {
+                    if (!resolved && dialog.isShowing) {
+                        resolved = true
+                        dialog.dismiss()
+                        playNext()
+                    }
+                }
+            }.start()
+        }
+    }
+
+    private fun dismissNextEpisodePromptForBackground() {
+        val dialog = nextEpisodeDialog ?: return
+        nextEpisodeCountdownTimer?.cancel()
+        nextEpisodeCountdownTimer = null
+        nextEpisodeDialog = null
+        if (dialog.isShowing) dialog.dismiss()
+    }
+
+    private fun launchNextPlaylistItem(
+        state: PlayerStateManager.PlaybackState,
+        videoTitle: String
+    ) {
+        val intent = createBaseIntent(state) ?: run {
+            App.toast(R.string.invalid_url, true)
+            return
+        }
+        val isIPTV = state.extras["isIPTV"] as? Boolean ?: false
+        val isLIVE = state.extras["isLIVE"] as? Boolean ?: false
+        val selectedPlayer = (if (isIPTV || isLIVE) tvPlayer else appPlayer)
+            ?.takeIf { it.isNotBlank() }
+        val selectedPlayerAvailable = selectedPlayer != null &&
+                getAvailablePlayers(intent).any {
+                    it.activityInfo.packageName.equals(selectedPlayer, true)
+                }
+
+        if (!selectedPlayerAvailable) {
+            val nextItemJson = JSONObject().apply {
+                put("url", state.currentItem?.url)
+                put("title", videoTitle)
+                put("from_state", true)
+            }
+            runPlayer(nextItemJson, activity = lampaActivity)
+            return
+        }
+
+        configurePlayerIntent(
+            intent = intent,
+            playerPackage = checkNotNull(selectedPlayer),
+            videoTitle = videoTitle,
+            isIPTV = isIPTV,
+            state = state,
+            headers = getHeadersFromState(state)
+        )
+        launchPlayer(intent)
+    }
+
+    private fun finishCompletedPlayback() {
+        lifecycleScope.launch {
+            val updateJob = launch(Dispatchers.Default) {
+                updatePlayNext(true)
+            }
+            updateJob.join()
+            playerStateManager.clearState(lampaActivity)
         }
     }
 
@@ -3418,7 +3818,11 @@ class MainActivity : BaseActivity(),
         durationMillis: Int,
         ended: Boolean
     ): PlayerStateManager.PlaylistItem {
-        val percent = if (durationMillis > 0) (positionMillis * 100 / durationMillis) else 100
+        val percent = when {
+            ended -> 100
+            durationMillis > 0 -> (positionMillis * 100 / durationMillis).coerceIn(0, 99)
+            else -> item.timeline?.percent?.coerceIn(0, 99) ?: 0
+        }
         return item.copy(
             timeline = PlayerStateManager.PlaylistItem.Timeline(
                 hash = item.timeline?.hash ?: "0",

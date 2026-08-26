@@ -64,21 +64,26 @@ class UpdateActivity : BaseActivity() {
 //            }
 //        }
 
-        findViewById<ProgressBar>(R.id.pbUpdate).visibility = View.VISIBLE
-        lifecycleScope.launch(Dispatchers.IO) {
-            if (!Updater.check())
+        val progress = findViewById<ProgressBar>(R.id.pbUpdate)
+        val updateButton = findViewById<Button>(R.id.btnUpdate)
+        progress.visibility = View.VISIBLE
+        updateButton.isEnabled = false
+        lifecycleScope.launch {
+            val available = withContext(Dispatchers.IO) { Updater.check() }
+            if (!available) {
                 finish()
+                return@launch
+            }
+            progress.visibility = View.GONE
+            updateButton.isEnabled = true
+            findViewById<TextView>(R.id.tvUpdateTitle)?.text =
+                String.format(getString(R.string.update_app_found), getString(R.string.app_name))
+            findViewById<TextView>(R.id.tvCurrentVersion)?.text =
+                ("${getString(R.string.update_cur_version)}: ${BuildConfig.VERSION_NAME}")
+            findViewById<TextView>(R.id.tvNewVersion)?.text =
+                ("${getString(R.string.update_new_version)}: ${Updater.getVersion()}")
+            findViewById<TextView>(R.id.tvOverview)?.text = Updater.getOverview()
         }
-        findViewById<ProgressBar>(R.id.pbUpdate).visibility = View.GONE
-
-        findViewById<TextView>(R.id.tvUpdateTitle)?.text =
-            String.format(getString(R.string.update_app_found), getString(R.string.app_name))
-
-        findViewById<TextView>(R.id.tvCurrentVersion)?.text =
-            ("${getString(R.string.update_cur_version)}: ${BuildConfig.VERSION_NAME}")
-        findViewById<TextView>(R.id.tvNewVersion)?.text =
-            ("${getString(R.string.update_new_version)}: ${Updater.getVersion()}")
-        findViewById<TextView>(R.id.tvOverview)?.text = Updater.getOverview()
 
         findViewById<Button>(R.id.btnCancel)?.setOnClickListener {
             finish()

@@ -80,6 +80,11 @@
     <string name="update_chan_title">Оновити канали Android TV</string>
     <string name="update_home_title">Оновити рекомендації</string>
     <string name="backup_restore_title">Резервування та відновлення</string>
+    <string name="settings_export_file">Експортувати налаштування у файл</string>
+    <string name="settings_import_file">Імпортувати налаштування з файлу</string>
+    <string name="settings_file_saved">Файл налаштувань збережено (%1$d елементів)</string>
+    <string name="settings_file_restored">Імпортовано налаштувань: %1$d, джерело: %2$s</string>
+    <string name="settings_transfer_requires_kitkat">Перенесення через файл потребує Android 4.4 або новішої версії</string>
     <string name="backup_all">Резервна копія</string>
     <string name="backup_all_title">Зробити резервну копію всіх налаштувань</string>
     <string name="restore_app_title">Відновити налаштування додатка</string>
@@ -103,6 +108,16 @@
     <string name="app_crash_showlog">Показати журнал</string>
     <string name="app_crash_errlogs">Журнал помилок</string>
     <string name="generic_error">Сталася помилка</string>
+    <string name="next_episode_prompt_title">Серію завершено</string>
+    <string name="next_episode_prompt_message">Увімкнути наступну серію?\n%1$s</string>
+    <string name="next_episode_play">Дивитися</string>
+    <string name="next_episode_default_title">Наступна серія</string>
+    <string name="next_episode_countdown_message">Наступна серія через %1$d с.\n%2$s</string>
+    <string name="next_episode_mode_menu">Наступна серія: %1$s</string>
+    <string name="next_episode_mode_title">Після завершення серії</string>
+    <string name="next_episode_mode_ask">Запитувати</string>
+    <string name="next_episode_mode_auto">Увімкнути через 10 секунд</string>
+    <string name="next_episode_mode_off">Вимкнено</string>
     <!-- Net Errors -->
     <string name="net_error_failed">Помилка мережевого запиту</string>
     <string name="net_error_timed_out">Таймаут з\'єднання</string>

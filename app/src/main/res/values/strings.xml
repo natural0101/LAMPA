@@ -83,6 +83,11 @@
     <string name="update_chan_title">Update TV Home Channels</string>
     <string name="update_home_title">Update TV Recommendations</string>
     <string name="backup_restore_title">Settings Backup &amp; Restore</string>
+    <string name="settings_export_file">Export settings to a file</string>
+    <string name="settings_import_file">Import settings from a file</string>
+    <string name="settings_file_saved">Settings file saved (%1$d items)</string>
+    <string name="settings_file_restored">Imported %1$d settings from %2$s</string>
+    <string name="settings_transfer_requires_kitkat">File transfer requires Android 4.4 or newer</string>
     <string name="backup_all">Backup All Settings</string>
     <string name="backup_all_title">Lampa &amp; App Settings Backup</string>
     <string name="restore_app_title">Restore App Preferences</string>
@@ -106,6 +111,16 @@
     <string name="app_crash_showlog">Show Logs</string>
     <string name="app_crash_errlogs">Error Logs</string>
     <string name="generic_error">An error occurred</string>
+    <string name="next_episode_prompt_title">Episode finished</string>
+    <string name="next_episode_prompt_message">Play next episode?\n%1$s</string>
+    <string name="next_episode_play">Play</string>
+    <string name="next_episode_default_title">Next episode</string>
+    <string name="next_episode_countdown_message">Next episode in %1$d seconds\n%2$s</string>
+    <string name="next_episode_mode_menu">Next episode: %1$s</string>
+    <string name="next_episode_mode_title">After an episode finishes</string>
+    <string name="next_episode_mode_ask">Ask</string>
+    <string name="next_episode_mode_auto">Auto-play after 10 seconds</string>
+    <string name="next_episode_mode_off">Off</string>
     <!-- Net Errors -->
     <string name="net_error_failed">Network request failed</string>
     <string name="net_error_timed_out">Connection timed out</string>

@@ -8,6 +8,7 @@ import com.google.gson.Gson
 import top.rootu.lampa.App
 import top.rootu.lampa.BuildConfig
 import top.rootu.lampa.MainActivity
+import top.rootu.lampa.NextEpisodeMode
 import top.rootu.lampa.content.LampaProvider
 import top.rootu.lampa.helpers.Helpers.getJson
 import top.rootu.lampa.models.CubBookmark
@@ -29,6 +30,7 @@ object Prefs {
     private const val APP_PLAYER = "player"
     private const val IPTV_PLAYER = "iptv_player"
     private const val PLAYER_KEEP_CONN_KEY = "player_keep_connection"
+    private const val NEXT_EPISODE_MODE_KEY = "next_episode_mode"
     private const val LAMPA_SOURCE = "source"
     private const val APP_BROWSER = "browser"
     private const val APP_LANG = "lang"
@@ -80,6 +82,12 @@ object Prefs {
     var Context.playerKeepConnection: Boolean
         get() = appPrefs.getBoolean(PLAYER_KEEP_CONN_KEY, false)
         set(value) = appPrefs.edit { putBoolean(PLAYER_KEEP_CONN_KEY, value) }
+
+    var Context.nextEpisodeMode: NextEpisodeMode
+        get() = NextEpisodeMode.fromPersistedValue(
+            appPrefs.getString(NEXT_EPISODE_MODE_KEY, NextEpisodeMode.ASK.persistedValue)
+        )
+        set(value) = appPrefs.edit { putString(NEXT_EPISODE_MODE_KEY, value.persistedValue) }
 
     var Context.lampaSource: String
         get() = appPrefs.getString(LAMPA_SOURCE, "tmdb") ?: "tmdb"
