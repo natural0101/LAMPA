@@ -1,5 +1,6 @@
 package top.rootu.lampa
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.SearchManager
 import android.content.ComponentName
@@ -156,6 +157,7 @@ class MainActivity : BaseActivity(),
     private lateinit var speechLauncher: ActivityResultLauncher<Intent>
     private lateinit var settingsExportLauncher: ActivityResultLauncher<String>
     private lateinit var settingsImportLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
     private lateinit var progressIndicator: LinearProgressIndicator
     private lateinit var playerStateManager: PlayerStateManager
 
@@ -247,6 +249,7 @@ class MainActivity : BaseActivity(),
         )
         private val URL_PATTERN = Pattern.compile(URL_REGEX)
         private val listenerMutex = Mutex()
+        private const val NOTIFICATION_PERMISSION_REQUESTED = "notification_permission_requested"
 
         // Properties
         var LAMPA_URL: String = ""
@@ -294,6 +297,7 @@ class MainActivity : BaseActivity(),
         setupBrowser()
         setupUI()
         setupIntents()
+        requestNotificationPermissionIfNeeded()
 
         if (firstRun) {
             CoroutineScope(Dispatchers.Default).launch {
@@ -829,6 +833,21 @@ class MainActivity : BaseActivity(),
             registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                 uri?.let(::readPortableSettings)
             }
+        notificationPermissionLauncher =
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    }
+
+    private fun requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != PackageManager.PERMISSION_GRANTED &&
+            !appPrefs.getBoolean(NOTIFICATION_PERMISSION_REQUESTED, false)
+        ) {
+            appPrefs.edit { putBoolean(NOTIFICATION_PERMISSION_REQUESTED, true) }
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     private fun setupUI() {

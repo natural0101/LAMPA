@@ -93,7 +93,12 @@ object Scheduler {
         @Suppress("DEPRECATION")
         // Create a PendingIntent for the alarm
         val pendingIntent = Intent(context, ContentAlarmManager::class.java).let { intent ->
-            PendingIntent.getService(context, CARDS_JOB_ID, intent, 0)
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_IMMUTABLE
+            } else {
+                0
+            }
+            PendingIntent.getService(context, CARDS_JOB_ID, intent, flags)
         }
 
         // Cancel any existing alarms

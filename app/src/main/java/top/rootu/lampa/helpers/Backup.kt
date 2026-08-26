@@ -24,9 +24,10 @@ object Backup {
     private const val TAG = "Backup"
 
     val DIR: File by lazy { // Compatible directory selection for all APIs
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
-                .resolve("LAMPA").apply { mkdirs() }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val base = App.context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+                ?: App.context.filesDir
+            base.resolve("LAMPA").apply { mkdirs() }
         } else {
             File(Environment.getExternalStorageDirectory(), "LAMPA").apply { mkdirs() }
         }

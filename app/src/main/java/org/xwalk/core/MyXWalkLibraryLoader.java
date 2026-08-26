@@ -536,7 +536,8 @@ class MyXWalkLibraryLoader {
             mListener = listener;
             mContext = context;
             mDownloadUrl = url;
-            XWALK_DOWNLOAD_DIR = FileHelpers.getDownloadDir(mContext);
+            File downloadDir = mContext.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
+            XWALK_DOWNLOAD_DIR = downloadDir != null ? downloadDir : mContext.getCacheDir();
         }
 
         @Override
@@ -545,7 +546,7 @@ class MyXWalkLibraryLoader {
             sActiveTask = this;
 
             mDownloadedFile = new File(XWALK_DOWNLOAD_DIR, DEFAULT_DOWNLOAD_FILE_NAME);
-            mDownloadedFile.mkdirs();
+            XWALK_DOWNLOAD_DIR.mkdirs();
             mDownloadedFile.deleteOnExit();
 
             mListener.onDownloadStarted();

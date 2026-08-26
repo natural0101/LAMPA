@@ -38,8 +38,7 @@ android {
     defaultConfig {
         applicationId "top.rootu.lampa"
         minSdkVersion 16
-        //noinspection ExpiredTargetSdkVersion
-        targetSdkVersion 28
+        targetSdkVersion 34
         versionCode getVersionCode()
         versionName getVersionName()
         buildConfigField "String", "updateReleasesUrl", "\"https://api.github.com/repos/lampa-app/LAMPA/releases\""

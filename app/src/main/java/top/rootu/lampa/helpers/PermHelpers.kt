@@ -33,6 +33,7 @@ object PermHelpers {
      */
     @JvmStatic
     fun verifyStoragePermissions(context: Context?) {
+        if (VERSION.SDK_INT >= Build.VERSION_CODES.Q) return
         requestPermissions(context, PERMISSIONS_STORAGE, REQUEST_EXTERNAL_STORAGE)
     }
 
@@ -48,6 +49,9 @@ object PermHelpers {
      */
     @JvmStatic
     fun hasStoragePermissions(context: Context?): Boolean {
+        // Android 10+ paths used by the app are app-specific or selected through SAF.
+        // Legacy READ/WRITE_EXTERNAL_STORAGE cannot grant broad access on modern Android.
+        if (VERSION.SDK_INT >= Build.VERSION_CODES.Q) return true
         // Check if we have write permission
         return hasPermissions(context, *PERMISSIONS_STORAGE)
     }
