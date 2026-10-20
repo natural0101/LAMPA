@@ -91,6 +91,13 @@ class EmbeddedTorrServerService : Service() {
     }
 
     private fun startServerIfNeeded() {
+        // A previous Service instance may have requested termination while its
+        // child is still alive. Do not replace that observable ownership record.
+        if (synchronized(processLock) { ownedProcess == null } && hasOwnedProcess()) {
+            setLastFailure("stop_timeout")
+            finishService()
+            return
+        }
         if (!starting.compareAndSet(false, true)) return
         var releaseStaleWakeLock = false
         val startGeneration = synchronized(processLock) {
@@ -178,6 +185,7 @@ class EmbeddedTorrServerService : Service() {
                 val accepted = synchronized(processLock) {
                     if (!stopRequested && generation == startGeneration && ownedProcess == null) {
                         ownedProcess = process
+                        trackedProcess = process
                         true
                     } else {
                         false
@@ -301,7 +309,7 @@ class EmbeddedTorrServerService : Service() {
 
         stopProcess(process, timeoutMs)
         synchronized(processLock) {
-            if (ownedProcess === process) ownedProcess = null
+            if (ownedProcess === process && !isAlive(process)) ownedProcess = null
         }
         releaseWakeLock()
     }
@@ -325,6 +333,17 @@ class EmbeddedTorrServerService : Service() {
                 process.destroyForcibly()
             } else {
                 process.destroy()
+            }
+            // A kill request is not proof of exit. Keep ownership observable
+            // until exitValue confirms termination, including across onDestroy.
+            val forceDeadline = android.os.SystemClock.elapsedRealtime() + FORCE_STOP_TIMEOUT_MS
+            while (isAlive(process) && android.os.SystemClock.elapsedRealtime() < forceDeadline) {
+                try {
+                    Thread.sleep(STOP_POLL_INTERVAL_MS)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    break
+                }
             }
         }
     }
@@ -451,6 +470,19 @@ class EmbeddedTorrServerService : Service() {
         @Volatile
         private var lastFailure: String? = null
 
+        @Volatile
+        private var trackedProcess: Process? = null
+
+        internal fun hasOwnedProcess(): Boolean {
+            val process = trackedProcess ?: return false
+            return try {
+                process.exitValue()
+                false
+            } catch (_: IllegalThreadStateException) {
+                true
+            }
+        }
+
         internal fun lastFailureCode(): String? = lastFailure
 
         private fun setLastFailure(value: String?) {
@@ -463,6 +495,7 @@ class EmbeddedTorrServerService : Service() {
         private const val STARTUP_POLL_INTERVAL_MS = 250L
         private const val AUTOMATIC_RECOVERY_DELAY_MS = 500L
         private const val GRACEFUL_STOP_TIMEOUT_MS = 7_000L
+        private const val FORCE_STOP_TIMEOUT_MS = 2_000L
         private const val STOP_POLL_INTERVAL_MS = 100L
     }
 }

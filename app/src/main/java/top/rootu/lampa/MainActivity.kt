@@ -122,6 +122,11 @@ import top.rootu.lampa.helpers.Prefs.viewToRemove
 import top.rootu.lampa.helpers.Prefs.wathToAdd
 import top.rootu.lampa.helpers.Prefs.wathToRemove
 import top.rootu.lampa.helpers.SettingsTransfer
+import top.rootu.lampa.helpers.exportSettingsToOwnedStorage
+import top.rootu.lampa.helpers.notifySettingsTransferCancelled
+import top.rootu.lampa.helpers.showSettingsTransferError
+import top.rootu.lampa.helpers.showSettingsTransferExportOptions
+import top.rootu.lampa.helpers.showSettingsTransferImportOptions
 import top.rootu.lampa.helpers.getAppVersion
 import top.rootu.lampa.helpers.hideSystemUI
 import top.rootu.lampa.helpers.isAmazonDev
@@ -280,7 +285,7 @@ class MainActivity : BaseActivity(),
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        if (BuildConfig.enableEmbeddedServer && VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             EmbeddedTorrServerManager.start(this)
         }
         LAMPA_URL = appUrl
@@ -316,7 +321,7 @@ class MainActivity : BaseActivity(),
 
     override fun onResume() {
         super.onResume()
-        if (VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+        if (BuildConfig.enableEmbeddedServer && VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             lifecycleScope.launch {
                 if (!EmbeddedTorrServerManager.ensureHealthyAfterResume(this@MainActivity)) {
                     Log.w(TAG, "Embedded MatriX resume health check failed")
@@ -827,11 +832,11 @@ class MainActivity : BaseActivity(),
             }
         settingsExportLauncher =
             registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-                uri?.let(::writePortableSettings)
+                if (uri != null) writePortableSettings(uri) else notifySettingsTransferCancelled()
             }
         settingsImportLauncher =
             registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-                uri?.let(::readPortableSettings)
+                if (uri != null) readPortableSettings(uri) else notifySettingsTransferCancelled()
             }
         notificationPermissionLauncher =
             registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -1004,7 +1009,7 @@ class MainActivity : BaseActivity(),
     }
 
     private fun setupEmbeddedTorrServerForLampa() {
-        if (VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || embeddedTorrServerSetupStarted) return
+        if (!BuildConfig.enableEmbeddedServer || VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP || embeddedTorrServerSetupStarted) return
 
         embeddedTorrServerSetupStarted = true
         lifecycleScope.launch {
@@ -1638,19 +1643,23 @@ class MainActivity : BaseActivity(),
     }
 
     private fun exportPortableSettings() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
-            App.toast(R.string.settings_transfer_requires_kitkat)
-            return
-        }
-        lifecycleScope.launch {
-            dumpStorage { callback ->
-                if (callback.contains(JS_SUCCESS, true)) {
-                    settingsExportLauncher.launch("LAMPA-settings.json")
-                } else {
-                    App.toast(R.string.settings_save_fail)
+        fun exportAfterStorageSync(local: Boolean) {
+            lifecycleScope.launch {
+                dumpStorage { callback ->
+                    if (callback.contains(JS_SUCCESS, true)) {
+                        if (local) exportSettingsToOwnedStorage(::readPortableSettings)
+                        else runCatching { settingsExportLauncher.launch("LAMPA-settings.json") }
+                            .onFailure(::showSettingsTransferError)
+                    } else {
+                        App.toast(R.string.settings_save_fail)
+                    }
                 }
             }
         }
+        showSettingsTransferExportOptions(
+            onLocalExport = { exportAfterStorageSync(local = true) },
+            onSafExport = { exportAfterStorageSync(local = false) }
+        )
     }
 
     private fun writePortableSettings(uri: Uri) {
@@ -1671,11 +1680,11 @@ class MainActivity : BaseActivity(),
     }
 
     private fun importPortableSettings() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) {
-            App.toast(R.string.settings_transfer_requires_kitkat)
-            return
+        showSettingsTransferImportOptions(::readPortableSettings) {
+            runCatching {
+                settingsImportLauncher.launch(arrayOf("application/json", "application/octet-stream"))
+            }.onFailure(::showSettingsTransferError)
         }
-        settingsImportLauncher.launch(arrayOf("application/json", "application/octet-stream"))
     }
 
     private fun readPortableSettings(uri: Uri) {
@@ -2644,7 +2653,7 @@ class MainActivity : BaseActivity(),
     ) {
         val position = getPlaybackPosition(state)
 
-        when (playerPackage.lowercase()) {
+        when (top.rootu.lampa.helpers.PlayerTestRouting.protocolPackage(playerPackage).lowercase()) {
             // UPlayer
             in UPLAYER_PACKAGES -> {
                 configureUPlayerIntent(
@@ -3650,18 +3659,13 @@ class MainActivity : BaseActivity(),
         }
         val nextTitle = nextItem.title?.takeIf { it.isNotBlank() }
             ?: getString(R.string.next_episode_default_title)
+        val completedActivityJson = lampaActivity
+        val completedState = playerStateManager.getState(completedActivityJson)
+        val finishPlayback = { finishCompletedPlayback(completedActivityJson, completedState) }
 
         var resolved = false
         val playNext = {
-            val nextState = playerStateManager.saveState(
-                activityJson = lampaActivity,
-                playlist = playlist,
-                currentIndex = nextIndex,
-                currentUrl = nextItem.url,
-                currentPosition = 0,
-                startIndex = startIndex,
-                extras = extras
-            )
+            val nextState = prepareNextEpisodeState(playlist, nextIndex, startIndex, extras)
             launchNextPlaylistItem(nextState, nextTitle)
         }
 
@@ -3683,7 +3687,7 @@ class MainActivity : BaseActivity(),
             .setNegativeButton(android.R.string.cancel) { _, _ ->
                 if (!resolved) {
                     resolved = true
-                    finishCompletedPlayback()
+                    finishPlayback()
                 }
             }
             .create()
@@ -3691,11 +3695,17 @@ class MainActivity : BaseActivity(),
         dialog.setOnCancelListener {
             if (!resolved) {
                 resolved = true
-                finishCompletedPlayback()
+                finishPlayback()
             }
         }
         nextEpisodeDialog = dialog
         dialog.setOnDismissListener {
+            // Home/background cancellation must also resolve this prompt. A queued
+            // timer callback must never launch the next item after dismissal.
+            if (!resolved) {
+                resolved = true
+                finishPlayback()
+            }
             if (nextEpisodeDialog === dialog) {
                 nextEpisodeCountdownTimer?.cancel()
                 nextEpisodeCountdownTimer = null
@@ -3716,6 +3726,10 @@ class MainActivity : BaseActivity(),
 
                 override fun onFinish() {
                     if (!resolved && dialog.isShowing) {
+                        if (!lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) {
+                            dialog.dismiss()
+                            return
+                        }
                         resolved = true
                         dialog.dismiss()
                         playNext()
@@ -3723,6 +3737,30 @@ class MainActivity : BaseActivity(),
                 }
             }.start()
         }
+    }
+
+    private fun prepareNextEpisodeState(
+        playlist: List<PlayerStateManager.PlaylistItem>,
+        nextIndex: Int,
+        startIndex: Int,
+        extras: Map<String, Any>
+    ): PlayerStateManager.PlaybackState {
+        // getPlaybackPosition prefers the item's timeline over currentPosition.
+        // Reset both sources when explicitly advancing to the next episode.
+        val nextPlaylist = playlist.toMutableList()
+        val item = nextPlaylist[nextIndex]
+        nextPlaylist[nextIndex] = item.copy(
+            timeline = item.timeline?.copy(time = 0.0, percent = 0)
+        )
+        return playerStateManager.saveState(
+            activityJson = lampaActivity,
+            playlist = nextPlaylist,
+            currentIndex = nextIndex,
+            currentUrl = item.url,
+            currentPosition = 0,
+            startIndex = startIndex,
+            extras = extras
+        )
     }
 
     private fun dismissNextEpisodePromptForBackground() {
@@ -3771,13 +3809,24 @@ class MainActivity : BaseActivity(),
         launchPlayer(intent)
     }
 
-    private fun finishCompletedPlayback() {
-        lifecycleScope.launch {
-            val updateJob = launch(Dispatchers.Default) {
-                updatePlayNext(true)
+    private fun finishCompletedPlayback(
+        activityJson: String = lampaActivity,
+        expectedState: PlayerStateManager.PlaybackState = playerStateManager.getState(activityJson)
+    ) = lifecycleScope.launch(Dispatchers.Default) {
+        // A dismissed prompt may finish after a new player launch. Compare the
+        // exact saved state under the same lock used by saveState/clearState.
+        synchronized(playerStateManager) {
+            if (playerStateManager.getState(activityJson) !== expectedState) return@synchronized
+            if (isTvContentProviderAvailable) {
+                getCardFromActivity(activityJson)?.let { card ->
+                    try {
+                        WatchNext.removeContinueWatch(card)
+                    } catch (error: Exception) {
+                        logDebug("PlayNext: removal failed: ${error.javaClass.simpleName}")
+                    }
+                }
             }
-            updateJob.join()
-            playerStateManager.clearState(lampaActivity)
+            playerStateManager.clearState(activityJson)
         }
     }
 

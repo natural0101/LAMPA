@@ -1,6 +1,8 @@
 package top.rootu.lampa
 
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
 import android.net.Uri
 import androidx.preference.PreferenceManager
 import androidx.test.core.app.ApplicationProvider
@@ -17,7 +19,51 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class SettingsTransferTest {
-    private val context = ApplicationProvider.getApplicationContext<Context>()
+    // Never point transfer tests at the user's preference groups or backup directory.
+    private val base = ApplicationProvider.getApplicationContext<Context>()
+    private val namespace = "transfer_test_${java.util.UUID.randomUUID()}_"
+    private val testRoot = File(base.cacheDir, namespace).apply { mkdirs() }
+    private val context = object : ContextWrapper(base) {
+        override fun getSharedPreferences(name: String, mode: Int): SharedPreferences =
+            base.getSharedPreferences(namespace + name, mode)
+        override fun getFilesDir(): File = File(testRoot, "files").apply { mkdirs() }
+        override fun getCacheDir(): File = File(testRoot, "cache").apply { mkdirs() }
+        override fun getExternalFilesDir(type: String?): File =
+            File(testRoot, "external/${type ?: ""}").apply { mkdirs() }
+    }
+
+    @Test
+    fun localCopy_isReadBackValidatedAndTamperingDoesNotChangePreferences() {
+        val settings = context.getSharedPreferences(Prefs.APP_PREFERENCES, Context.MODE_PRIVATE)
+        assertTrue(settings.edit().putString("local-fixture", "preserved").commit())
+        val copy = SettingsTransfer.exportLocal(context).getOrThrow()
+        assertEquals(SettingsTransfer.localDirectory(context).canonicalFile, copy.file.canonicalFile.parentFile)
+        assertEquals(context.packageName, copy.sourcePackage)
+        assertEquals(copy.checksum, SettingsTransfer.inspectLocal(context, copy.file).getOrThrow().checksum)
+        assertTrue(SettingsTransfer.localFiles(context).contains(copy.file))
+        assertTrue(settings.edit().putString("local-fixture", "current-value").commit())
+        val imported = SettingsTransfer.importFromUri(context, Uri.fromFile(copy.file)).getOrThrow()
+        assertEquals("preserved", settings.getString("local-fixture", null))
+        assertTrue(SettingsTransfer.rollback(context, imported))
+        assertEquals("current-value", settings.getString("local-fixture", null))
+        val document = JSONObject(copy.file.readText())
+        document.put("payload", document.getString("payload") + " ")
+        copy.file.writeText(document.toString())
+        assertTrue(SettingsTransfer.inspectLocal(context, copy.file).isFailure)
+        assertTrue(SettingsTransfer.importFromUri(context, Uri.fromFile(copy.file)).isFailure)
+        assertEquals("current-value", settings.getString("local-fixture", null))
+        copy.file.delete()
+        settings.edit().clear().commit()
+    }
+
+    @Test
+    fun localCopy_rejectsFilesOutsideTheOwnedDirectory() {
+        val outside = File(context.cacheDir, "LAMPA-settings-outside.json")
+        SettingsTransfer.exportToUri(context, Uri.fromFile(outside)).getOrThrow()
+        assertTrue(SettingsTransfer.inspectLocal(context, outside).isFailure)
+        assertTrue(SettingsTransfer.localFiles(context).isEmpty())
+        outside.delete()
+    }
 
     @Test
     fun exportThenImport_restoresAllPreferenceTypesAndRejectsTampering() {

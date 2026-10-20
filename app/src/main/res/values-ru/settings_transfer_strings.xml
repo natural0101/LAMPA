@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="transfer_title">Файлы настроек</string>
+    <string name="transfer_export_local">Сохранить копию в Documents/LAMPA приложения</string>
+    <string name="transfer_import_local">Выбрать сохранённую копию приложения</string>
+    <string name="transfer_system_picker">Выбрать документ через систему</string>
+    <string name="transfer_picker_unavailable">Системный выбор документов недоступен</string>
+    <string name="transfer_saved_verified">Копия сохранена и проверена</string>
+    <string name="transfer_saved_details">%1$s\n\nНастроек проверено чтением файла: %2$d.\n\nЭта копия принадлежит приложению и удаляется при его удалении или очистке данных. Для переноса в другое приложение используйте системный выбор файла на совместимом устройстве.</string>
+    <string name="transfer_import_this">Импортировать эту копию</string>
+    <string name="transfer_no_copies">Сохранённых файлов настроек нет в:\n%1$s</string>
+    <string name="transfer_choose_copy">Выберите файл настроек</string>
+    <string name="transfer_import_confirm">Заменить текущие настройки?</string>
+    <string name="transfer_import_details">%1$s\n\nИсточник: %2$s\nНастроек: %3$d\n\nИмпорт заменит текущие настройки приложения и localStorage Lampa. Формат и контрольная сумма файла проверены.</string>
+    <string name="transfer_cancelled">Документ не выбран. Передача файла настроек не выполнена.</string>
+    <string name="transfer_failed">Ошибка переноса настроек</string>
+    <string name="transfer_failed_details">Не удалось сохранить, проверить или восстановить файл. Успешный перенос не подтверждён. Если ошибка возникла при импорте, проверьте текущие настройки перед продолжением.</string>
+</resources>
