@@ -96,10 +96,11 @@ android {
         matrix {
             initWith release
             applicationIdSuffix ".matrix"
+            versionName "1.13.3"
             versionNameSuffix "-matrix"
-            buildConfigField "boolean", "enableUpdate", "true"
+            buildConfigField "boolean", "enableUpdate", "false"
             buildConfigField "String", "updateReleasesUrl", "\"https://api.github.com/repos/natural0101/LAMPA/releases\""
-            buildConfigField "String", "updateCertificateSha256", "\"FFB499FC53EBC49EE76D78039AB99A1EA18D76FCFFE7B4CDB94D2A6B3CD73FCD\""
+            buildConfigField "String", "updateCertificateSha256", "\"2177D53274D54D8296D333187F0097BA4AF128569A069FACE238BFD58819AE5E\""
             signingConfig signingConfigs.release
         }
     }
