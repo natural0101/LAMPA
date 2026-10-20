@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="transfer_title">Settings files</string>
+    <string name="transfer_export_local">Save a copy in app Documents/LAMPA</string>
+    <string name="transfer_import_local">Choose a saved app copy</string>
+    <string name="transfer_system_picker">Choose a document with the system picker</string>
+    <string name="transfer_picker_unavailable">System document picker unavailable</string>
+    <string name="transfer_saved_verified">Copy saved and verified</string>
+    <string name="transfer_saved_details">%1$s\n\n%2$d settings verified by reading the file.\n\nThis app-owned copy is removed when the app is uninstalled or its data is cleared. Use the system picker on supported devices to transfer a copy to another app.</string>
+    <string name="transfer_import_this">Import this copy</string>
+    <string name="transfer_no_copies">No saved settings files in:\n%1$s</string>
+    <string name="transfer_choose_copy">Choose a saved settings file</string>
+    <string name="transfer_import_confirm">Replace current settings?</string>
+    <string name="transfer_import_details">%1$s\n\nSource: %2$s\nSettings: %3$d\n\nImport replaces current app settings and Lampa localStorage. File format and checksum have been verified.</string>
+    <string name="transfer_cancelled">No document selected. Settings file was not transferred.</string>
+    <string name="transfer_failed">Settings transfer failed</string>
+    <string name="transfer_failed_details">The file could not be saved, verified or restored. No successful transfer is confirmed. If this happened during import, review the current settings before continuing.</string>
+</resources>

@@ -9,6 +9,8 @@ import android.os.SystemClock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.net.HttpURLConnection
@@ -37,7 +39,8 @@ object EmbeddedTorrServerManager {
         val version: String? = null,
         val cacheSizeBytes: Long? = null,
         val diskCacheEnabled: Boolean? = null,
-        val errorCode: String? = null
+        val errorCode: String? = null,
+        val owned: Boolean = false
     ) {
         val isHealthy: Boolean get() = health == Health.HEALTHY
     }
@@ -59,6 +62,10 @@ object EmbeddedTorrServerManager {
     // One automatic attempt per failure episode. A successful health check opens
     // the gate again; repeated resumes cannot produce an endless restart loop.
     private val resumeRecoveryAttempted = AtomicBoolean(false)
+    private val controlMutex = Mutex()
+
+    @Volatile
+    private var serviceStartFailure: String? = null
 
     @JvmStatic
     fun isSupported(): Boolean =
@@ -88,34 +95,51 @@ object EmbeddedTorrServerManager {
 
     /** Used from Activity.onResume after TV sleep/background. */
     suspend fun ensureHealthyAfterResume(context: Context): Boolean = withContext(Dispatchers.IO) {
+        controlMutex.withLock { ensureHealthyAfterResumeLocked(context) }
+    }
+
+    private suspend fun ensureHealthyAfterResumeLocked(context: Context): Boolean {
         if (probe().isHealthy) {
             resumeRecoveryAttempted.set(false)
-            return@withContext true
+            return true
         }
-        if (!resumeRecoveryAttempted.compareAndSet(false, true)) return@withContext false
-        start(context)
+        if (!resumeRecoveryAttempted.compareAndSet(false, true)) return false
+        if (!startService(context, EmbeddedTorrServerService.ACTION_START)) return false
         val recovered = awaitReady(STARTUP_TIMEOUT_MS)
         if (recovered) resumeRecoveryAttempted.set(false)
-        recovered
+        return recovered
     }
 
     suspend fun restart(context: Context): OperationResult = withContext(Dispatchers.IO) {
-        if (!isSupported()) return@withContext OperationResult(false, "unsupported")
+        controlMutex.withLock { restartLocked(context) }
+    }
+
+    private suspend fun restartLocked(context: Context): OperationResult {
+        if (!isSupported()) return OperationResult(false, "unsupported")
+        val before = probe()
+        restartOperationError(before)?.let { return OperationResult(false, it) }
         resumeRecoveryAttempted.set(false)
-        startService(context, EmbeddedTorrServerService.ACTION_STOP)
+        if (EmbeddedTorrServerService.hasOwnedProcess() &&
+            !startService(context, EmbeddedTorrServerService.ACTION_STOP)) {
+            return OperationResult(false, "service_start_denied")
+        }
         val stopDeadline = SystemClock.elapsedRealtime() + STOP_TIMEOUT_MS
-        while (isCompatibleServer(FAST_REQUEST_TIMEOUT_MS) && SystemClock.elapsedRealtime() < stopDeadline) {
+        while ((EmbeddedTorrServerService.hasOwnedProcess() || isCompatibleServer(FAST_REQUEST_TIMEOUT_MS)) &&
+            SystemClock.elapsedRealtime() < stopDeadline) {
             delay(POLL_INTERVAL_MS)
         }
-        // A compatible listener that survived STOP is not our child. Reuse it;
-        // never send /shutdown to a process owned by another application.
-        if (isCompatibleServer(FAST_REQUEST_TIMEOUT_MS)) return@withContext OperationResult(true)
+        if (isCompatibleServer(FAST_REQUEST_TIMEOUT_MS)) {
+            return OperationResult(false, if (EmbeddedTorrServerService.hasOwnedProcess()) "stop_timeout" else "external_server")
+        }
+        if (EmbeddedTorrServerService.hasOwnedProcess()) return OperationResult(false, "stop_timeout")
         // Port close is observed before Service.onDestroy completes. Starting a
         // new instance immediately can race the previous instance's stopSelf().
         delay(RESTART_SERVICE_SETTLE_MS)
-        start(context)
-        if (awaitReady(STARTUP_TIMEOUT_MS)) OperationResult(true)
-        else OperationResult(false, EmbeddedTorrServerService.lastFailureCode() ?: "start_timeout")
+        if (!startService(context, EmbeddedTorrServerService.ACTION_START)) return OperationResult(false, "service_start_denied")
+        return if (awaitReady(STARTUP_TIMEOUT_MS)) {
+            if (EmbeddedTorrServerService.hasOwnedProcess()) OperationResult(true)
+            else OperationResult(false, "external_server")
+        } else OperationResult(false, EmbeddedTorrServerService.lastFailureCode() ?: "start_timeout")
     }
 
     /**
@@ -123,13 +147,32 @@ object EmbeddedTorrServerManager {
      * drops its RAM cache. Disk paths/database are never implicitly deleted.
      */
     suspend fun clearMemoryCache(context: Context): OperationResult = withContext(Dispatchers.IO) {
-        val current = probe()
-        if (!current.isHealthy) return@withContext OperationResult(false, current.errorCode ?: "not_running")
-        if (current.diskCacheEnabled == true) {
-            return@withContext OperationResult(false, "disk_cache_clear_unsupported")
-        }
-        restart(context)
+        controlMutex.withLock { clearMemoryCacheLocked(context) }
     }
+
+    private suspend fun clearMemoryCacheLocked(context: Context): OperationResult {
+        val current = probe()
+        cacheOperationError(current)?.let { return OperationResult(false, it) }
+        return restartLocked(context)
+    }
+
+    internal fun cacheOperationError(current: Status): String? = when {
+        !current.isHealthy -> current.errorCode ?: "not_running"
+        !current.owned -> "external_server"
+        current.diskCacheEnabled == null -> "disk_cache_unknown"
+        current.diskCacheEnabled -> "disk_cache_clear_unsupported"
+        else -> null
+    }
+
+    internal fun restartOperationError(current: Status): String? = when {
+        current.owned -> null // An unhealthy owned child must remain restartable.
+        current.isHealthy && !current.owned -> "external_server"
+        current.health == Health.INCOMPATIBLE -> current.errorCode ?: "unexpected_echo"
+        else -> null
+    }
+
+    internal fun diskCacheSetting(settings: JSONObject): Boolean? =
+        (settings.opt("UseDisk") as? Boolean)
 
     /**
      * Warms only an already-created local MatriX stream URL. This is deliberately
@@ -195,6 +238,7 @@ object EmbeddedTorrServerManager {
         appendLine("ABI: ${diagnostics.abi ?: "unsupported"}")
         appendLine("Endpoint: http://127.0.0.1:${diagnostics.port}")
         appendLine("Health: ${diagnostics.status.health.name}")
+        appendLine("Owned process: ${diagnostics.status.owned}")
         appendLine("Version: ${diagnostics.status.version ?: "unknown"}")
         appendLine("Error code: ${diagnostics.status.errorCode ?: "none"}")
         appendLine("Cache limit: ${formatBytes(diagnostics.status.cacheSizeBytes)}")
@@ -215,33 +259,51 @@ object EmbeddedTorrServerManager {
 
     private fun probe(timeoutMs: Int = REQUEST_TIMEOUT_MS): Status {
         if (!isSupported()) return Status(Health.UNSUPPORTED, errorCode = "unsupported")
+        // Ownership is a process observation, independent of either HTTP endpoint.
+        val owned = EmbeddedTorrServerService.hasOwnedProcess()
         val echo = request("$BASE_URL/echo", "GET", null, timeoutMs)
-            ?: return Status(Health.STOPPED, errorCode = EmbeddedTorrServerService.lastFailureCode() ?: "not_running")
+            ?: return Status(Health.STOPPED, errorCode = serviceStartFailure ?: EmbeddedTorrServerService.lastFailureCode() ?: "not_running", owned = owned)
         val version = echo.trim().takeIf { it.matches(MATRIX_VERSION_PATTERN) }
-            ?: return Status(Health.INCOMPATIBLE, errorCode = "unexpected_echo")
+            ?: return Status(Health.INCOMPATIBLE, errorCode = "unexpected_echo", owned = owned)
         val settingsText = request("$BASE_URL/settings", "POST", "{\"action\":\"get\"}", timeoutMs)
-            ?: return Status(Health.INCOMPATIBLE, version, errorCode = "settings_unavailable")
+            ?: return Status(Health.INCOMPATIBLE, version, errorCode = "settings_unavailable", owned = owned)
         return try {
             val settings = JSONObject(settingsText)
             if (!settings.has("CacheSize")) {
-                Status(Health.INCOMPATIBLE, version, errorCode = "settings_incompatible")
+                Status(Health.INCOMPATIBLE, version, errorCode = "settings_incompatible", owned = owned)
             } else {
                 Status(
                     Health.HEALTHY, version,
                     settings.optLong("CacheSize").takeIf { it > 0L },
-                    settings.optBoolean("UseDisk", false)
+                    diskCacheSetting(settings),
+                    owned = EmbeddedTorrServerService.hasOwnedProcess()
                 )
             }
         } catch (_: Exception) {
-            Status(Health.INCOMPATIBLE, version, errorCode = "settings_invalid")
+            Status(Health.INCOMPATIBLE, version, errorCode = "settings_invalid", owned = owned)
         }
     }
 
-    private fun startService(context: Context, action: String) {
+    internal fun startService(context: Context, action: String): Boolean {
         val appContext = context.applicationContext
         val intent = Intent(appContext, EmbeddedTorrServerService::class.java).apply { this.action = action }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) appContext.startForegroundService(intent)
-        else appContext.startService(intent)
+        return try {
+            val component = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) appContext.startForegroundService(intent)
+            else appContext.startService(intent)
+            if (component == null) {
+                serviceStartFailure = "service_start_denied"
+                false
+            } else {
+                serviceStartFailure = null
+                true
+            }
+        } catch (_: IllegalStateException) {
+            serviceStartFailure = "service_start_denied"
+            false
+        } catch (_: SecurityException) {
+            serviceStartFailure = "service_start_denied"
+            false
+        }
     }
 
     private fun request(url: String, method: String, body: String?, timeoutMs: Int): String? {

@@ -28,4 +28,8 @@
     <string name="matrix_error_process">The MatriX process exited. One automatic recovery attempt is allowed.</string>
     <string name="matrix_error_timeout">MatriX did not pass the health check before the timeout.</string>
     <string name="matrix_error_not_running">MatriX is not responding on 127.0.0.1:8090.</string>
+    <string name="matrix_error_external_server">An external TorrServer is using port 8090. LAMPA can use its connection, but cannot restart it or clear its cache. No restart or cache clear was performed.</string>
+    <string name="matrix_error_disk_cache_unknown">The disk cache setting is unknown. Cache was not cleared.</string>
+    <string name="matrix_error_service_start">Android did not allow the MatriX service to start. The operation was not completed.</string>
+    <string name="matrix_error_stop_timeout">The owned MatriX process did not stop before the timeout. Restart and cache clear were not completed.</string>
 </resources>

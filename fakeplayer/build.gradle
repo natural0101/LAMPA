@@ -1,0 +1,19 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'top.rootu.lampa.fakeplayer'
+    compileSdk 34
+    defaultConfig {
+        applicationId 'top.rootu.lampa.fakeplayer'
+        minSdk 16
+        targetSdk 34
+        versionCode 1
+        versionName '1.0-test'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}

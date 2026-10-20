@@ -56,7 +56,7 @@ object Backup {
 
             if (content.isNotBlank()) {
                 val baseName = if (which.isNullOrEmpty()) "prefs.backup" else "$which.backup"
-                rotateBackups(baseName)
+                if (!rotateBackups(baseName)) return false
                 writeFileSafely(baseName, content)
             } else false
         } finally {
@@ -89,8 +89,8 @@ object Backup {
         return File(filesDir.parentFile, "shared_prefs/$fileName")
     }
 
-    private fun rotateBackups(baseName: String) {
-        try {
+    private fun rotateBackups(baseName: String): Boolean {
+        return try {
             val minuteFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm", Locale.US)
 
             // Get ALL matching files (including active backup)
@@ -110,15 +110,17 @@ object Backup {
                     uniqueName = "$baseName.$timestamp.$counter"
                     counter++
                 }
-                current.renameTo(File(DIR, uniqueName))
+                check(current.renameTo(File(DIR, uniqueName))) { "Unable to archive previous backup" }
             }
 
             // Clean up - keep only MAX_BACKUPS total (active + archives)
             allBackups.drop(MAX_BACKUPS).forEach {
                 it.deleteSafely()
             }
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Rotation failed", e)
+            false
         }
     }
 
@@ -188,9 +190,10 @@ object Backup {
         val tempFile = File(DIR, "$fileName.tmp") // Atomic write
         return try {
             tempFile.writer(Charsets.UTF_8).use { it.write(content) }
-            tempFile.renameTo(File(DIR, fileName)) // Atomic commit
+            check(tempFile.renameTo(File(DIR, fileName))) { "Unable to commit backup file" }
             true
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            Log.e(TAG, "Backup write failed: $fileName", error)
             tempFile.deleteSafely()
             false
         }

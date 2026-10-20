@@ -28,4 +28,8 @@
     <string name="matrix_error_process">Процесс MatriX завершился. Разрешена одна попытка автоматического восстановления.</string>
     <string name="matrix_error_timeout">MatriX не прошёл проверку до истечения времени ожидания.</string>
     <string name="matrix_error_not_running">MatriX не отвечает по адресу 127.0.0.1:8090.</string>
+    <string name="matrix_error_external_server">Порт 8090 использует внешний TorrServer. LAMPA может подключаться к нему, но не управляет его перезапуском и кешем. Перезапуск и очистка кеша не выполнялись.</string>
+    <string name="matrix_error_disk_cache_unknown">Режим дискового кеша неизвестен. Очистка кеша не выполнялась.</string>
+    <string name="matrix_error_service_start">Android не разрешил запустить службу MatriX. Операция не выполнена.</string>
+    <string name="matrix_error_stop_timeout">Собственный процесс MatriX не остановился вовремя. Перезапуск и очистка кеша не завершены.</string>
 </resources>

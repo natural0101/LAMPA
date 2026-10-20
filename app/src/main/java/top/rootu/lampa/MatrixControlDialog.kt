@@ -1,6 +1,8 @@
 package top.rootu.lampa
 
 import android.content.Intent
+import android.content.Context
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
@@ -18,20 +20,40 @@ fun MainActivity.showMatrixControlDialog() {
             getString(R.string.matrix_check_connection),
             getString(R.string.matrix_diagnostics)
         )
-        AlertDialog.Builder(this@showMatrixControlDialog)
-            .setTitle(R.string.matrix_control_title)
-            .setMessage(matrixStatusText(diagnostics.status))
-            .setItems(actions) { _, which ->
+        createMatrixControlsDialog(this@showMatrixControlDialog, matrixStatusText(diagnostics.status), actions) { which ->
                 when (which) {
                     0 -> runMatrixOperation(clearCache = false)
                     1 -> runMatrixOperation(clearCache = true)
                     2 -> showMatrixControlDialog()
                     3 -> showMatrixDiagnostics(diagnostics)
                 }
-            }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            }.show()
     }
+}
+
+/** The status is a non-selectable list header, so it scrolls together with TV actions. */
+internal fun createMatrixControlsDialog(
+    context: Context,
+    status: String,
+    actions: Array<String>,
+    onAction: (Int) -> Unit
+): AlertDialog {
+    val dialog = AlertDialog.Builder(context)
+        .setTitle(R.string.matrix_control_title)
+        .setItems(actions) { _, position ->
+            val action = position - 1 // ListView positions include the status header.
+            if (action in actions.indices) onAction(action)
+        }
+        .setNegativeButton(android.R.string.cancel, null)
+        .create()
+    val header = TextView(dialog.context).apply {
+        text = status
+        val inset = (24 * resources.displayMetrics.density).toInt()
+        setPadding(inset, inset / 2, inset, inset / 2)
+        isFocusable = false
+    }
+    dialog.listView.addHeaderView(header, null, false)
+    return dialog
 }
 
 private fun MainActivity.runMatrixOperation(clearCache: Boolean) {
@@ -102,6 +124,10 @@ private fun MainActivity.matrixStatusText(status: EmbeddedTorrServerManager.Stat
         append(getString(R.string.matrix_version_line, status.version ?: getString(R.string.matrix_unknown)))
         append('\n')
         append(getString(R.string.matrix_endpoint_line, "127.0.0.1:8090"))
+        if (status.isHealthy && !status.owned) {
+            append("\n\n")
+            append(getString(R.string.matrix_error_external_server))
+        }
         status.errorCode?.let {
             append("\n\n")
             append(matrixErrorText(it))
@@ -114,6 +140,10 @@ private fun MainActivity.matrixErrorText(code: String?): String = when (code) {
     "binary_missing", "binary_verification_failed" -> getString(R.string.matrix_error_binary)
     "data_directory_unavailable" -> getString(R.string.matrix_error_storage)
     "disk_cache_clear_unsupported" -> getString(R.string.matrix_error_disk_cache)
+    "disk_cache_unknown" -> getString(R.string.matrix_error_disk_cache_unknown)
+    "external_server" -> getString(R.string.matrix_error_external_server)
+    "service_start_denied" -> getString(R.string.matrix_error_service_start)
+    "stop_timeout" -> getString(R.string.matrix_error_stop_timeout)
     "unexpected_echo", "settings_unavailable", "settings_incompatible", "settings_invalid" ->
         getString(R.string.matrix_error_port_occupied)
     "process_start_failed", "process_exited" -> getString(R.string.matrix_error_process)
