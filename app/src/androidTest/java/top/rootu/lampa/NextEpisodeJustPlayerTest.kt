@@ -12,7 +12,6 @@ import androidx.appcompat.app.AlertDialog
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.assertion.ViewAssertions.doesNotExist
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
@@ -23,13 +22,13 @@ import androidx.lifecycle.Lifecycle
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.hamcrest.CoreMatchers.containsString
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -124,13 +123,22 @@ class NextEpisodeJustPlayerTest {
                 "LAMPA did not resume after the first episode",
                 waitForActivityResume(scenario)
             )
-            onView(withText(R.string.next_episode_prompt_title)).check(matches(isDisplayed()))
-            onView(withText(containsString("Episode 2"))).check(matches(isDisplayed()))
-
-            // Activity can be RESUMED while Android is still removing the external player's
-            // transition surface; wait until it no longer occludes injected remote/TV clicks.
-            Thread.sleep(750L)
-            onView(withText(R.string.next_episode_play)).perform(click())
+            assertTrue("ASK dialog did not become visible", waitForNextEpisodeDialog(scenario))
+            scenario.onActivity { activity ->
+                val dialog = checkNotNull(nextEpisodeDialog(activity))
+                assertTrue(dialog.isShowing)
+                assertTrue(dialog.window?.decorView?.isShown == true)
+                assertEquals(activity.getString(R.string.next_episode_prompt_title),
+                    dialog.findViewById<TextView>(androidx.appcompat.R.id.alertTitle)?.text.toString())
+                assertTrue(dialog.findViewById<TextView>(android.R.id.message)?.text.toString().contains("Episode 2"))
+                val positive = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                assertTrue("ASK positive button is not visible", positive.isShown)
+                assertTrue("ASK positive button is disabled", positive.isEnabled)
+                assertEquals(activity.getString(R.string.next_episode_play), positive.text.toString())
+                // Exercise the real widget listener without depending on the TV's
+                // external-player transition surface or remote focus routing.
+                assertTrue("ASK positive button did not handle click", positive.performClick())
+            }
 
             assertTrue("Just Player was not launched for the next episode", launchLatch.await(10, TimeUnit.SECONDS))
             assertEquals(listOf(firstUrl, secondUrl), launches.toList())
@@ -138,7 +146,7 @@ class NextEpisodeJustPlayerTest {
                 "LAMPA did not resume after the next episode",
                 waitForActivityResume(scenario)
             )
-            onView(withText(R.string.next_episode_prompt_title)).check(doesNotExist())
+            scenario.onActivity { activity -> assertNull(nextEpisodeDialog(activity)) }
         }
     }
 
@@ -293,6 +301,28 @@ class NextEpisodeJustPlayerTest {
         MainActivity::class.java.getDeclaredField("playerStateManager").apply {
             isAccessible = true
         }.get(activity) as PlayerStateManager
+
+    private fun nextEpisodeDialog(activity: MainActivity): AlertDialog? =
+        MainActivity::class.java.getDeclaredField("nextEpisodeDialog").apply {
+            isAccessible = true
+        }.get(activity) as? AlertDialog
+
+    private fun waitForNextEpisodeDialog(
+        scenario: ActivityScenario<MainActivity>,
+        timeoutSeconds: Long = 10
+    ): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(timeoutSeconds)
+        while (System.nanoTime() < deadline) {
+            var visible = false
+            scenario.onActivity { activity ->
+                val dialog = nextEpisodeDialog(activity)
+                visible = dialog?.isShowing == true && dialog.window?.decorView?.isShown == true
+            }
+            if (visible) return true
+            Thread.sleep(50L)
+        }
+        return false
+    }
 
     private fun activityFixture(id: Int, title: String): String = JSONObject()
         // PlayerStateManager keys activity params at the root, while the card
